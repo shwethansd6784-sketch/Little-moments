@@ -60,6 +60,9 @@ export const RecipientExperience = ({ slug, previewGift = null }) => {
     }
 
     const fullGift = await GiftService.verifyAndUnlockGift(slug, enteredPassword);
+    if (!fullGift || fullGift.success === false) {
+      throw new Error(fullGift?.message || 'Incorrect password. Please try again.');
+    }
     setUnlockedGift(fullGift);
   };
 

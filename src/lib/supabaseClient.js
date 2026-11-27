@@ -1,7 +1,7 @@
 /**
  * Little Moments - Supabase Client & Unified Resilient Storage Layer
  * Seamlessly integrates live Supabase cloud backend (Edge Functions, PostgreSQL, Auth)
- * with robust local caching so gifts and surprises NEVER fail.
+ * with robust local caching so gifts and surprises NEVER fail across any device.
  */
 
 import { createClient } from '@supabase/supabase-js';
@@ -91,7 +91,7 @@ export const GiftService = {
         console.warn('Supabase login fallback:', err);
       }
     }
-    // Local / Studio login
+    // Studio login
     const mockUser = {
       id: 'creator-studio-user',
       email: email || 'creator@littlemoments.love',
@@ -169,8 +169,9 @@ export const GiftService = {
     return localGifts;
   },
 
+  // Fetches public lockscreen metadata for recipient (Safe for another phone/device)
   async getGiftBySlug(slug) {
-    // 1. Try Supabase for published lockscreen metadata
+    // 1. Try Supabase PostgREST for published lockscreen metadata
     if (isSupabaseConfigured && supabase) {
       try {
         const { data, error } = await supabase
@@ -180,13 +181,26 @@ export const GiftService = {
           .eq('published', true)
           .maybeSingle();
 
-        if (data) return data;
+        if (data && data.slug) return data;
       } catch (err) {
-        console.warn('Remote slug check:', err);
+        console.warn('Direct PostgREST slug check failed, trying Edge Function:', err);
+      }
+
+      // 2. Fallback to Supabase Edge Function (Bypasses any client table grant hurdles)
+      try {
+        const { data: edgeData, error: edgeErr } = await supabase.functions.invoke('verify-gift-password', {
+          body: { action: 'get_metadata', slug }
+        });
+
+        if (!edgeErr && edgeData?.success && edgeData?.gift) {
+          return edgeData.gift;
+        }
+      } catch (err) {
+        console.warn('Edge function metadata lookup error:', err);
       }
     }
 
-    // 2. Check Local Store
+    // 3. Fallback to Local Store (for creator preview or offline demo)
     const gifts = getMockGifts();
     const found = gifts.find(g => g.slug === slug);
     if (!found || !found.published) return null;
@@ -214,11 +228,11 @@ export const GiftService = {
     if (isSupabaseConfigured && supabase) {
       try {
         const { data, error } = await supabase.functions.invoke('verify-gift-password', {
-          body: { slug, password: enteredPassword }
+          body: { action: 'verify', slug, password: enteredPassword }
         });
 
         if (error) {
-          console.warn('Edge function error, attempting local verification:', error);
+          console.warn('Edge function verification error, attempting fallback:', error);
         } else if (data && data.success && data.gift) {
           resetRateLimit(slug);
           return data.gift;
@@ -254,6 +268,7 @@ export const GiftService = {
     return gift;
   },
 
+  // Saves and publishes gifts so they are accessible from ANY device or phone
   async saveGift(giftData) {
     // Hash password if set/updated
     let updatedGift = { ...giftData };
@@ -268,7 +283,7 @@ export const GiftService = {
     // Always update timestamp
     updatedGift.updated_at = new Date().toISOString();
 
-    // 1. Save to Local Store first (guarantees zero data loss)
+    // 1. Save to Local Store first (instant creator cache)
     const localGifts = getMockGifts();
     const existingIndex = localGifts.findIndex(g => g.id === updatedGift.id || g.slug === updatedGift.slug);
 
@@ -284,45 +299,69 @@ export const GiftService = {
     }
     saveMockGifts(localGifts);
 
-    // 2. Sync to Supabase if authenticated
+    // 2. Sync to Supabase Cloud so any other phone or device can access it
     if (isSupabaseConfigured && supabase) {
+      // First attempt: Edge Function cloud save (runs with service-role admin rights)
+      try {
+        const { data: edgeSave, error: edgeSaveErr } = await supabase.functions.invoke('verify-gift-password', {
+          body: { action: 'save_gift', gift: updatedGift }
+        });
+
+        if (!edgeSaveErr && edgeSave?.success) {
+          console.log('Gift successfully synced to Supabase cloud via Edge Function:', edgeSave);
+          if (edgeSave.gift_id) {
+            updatedGift.id = edgeSave.gift_id;
+            localGifts[0].id = edgeSave.gift_id;
+            saveMockGifts(localGifts);
+          }
+        } else {
+          console.warn('Edge function cloud save note:', edgeSaveErr || edgeSave?.message);
+        }
+      } catch (err) {
+        console.warn('Edge function cloud save error:', err);
+      }
+
+      // Second attempt: Direct PostgREST insert/upsert
       try {
         const user = await this.getCurrentUser();
-        // If real UUID from Supabase auth
-        if (user && user.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(user.id)) {
-          const payload = {
-            creator_id: user.id,
-            slug: updatedGift.slug,
-            occasion: updatedGift.occasion,
-            recipient_name: updatedGift.recipient_name,
-            theme_id: updatedGift.theme_id,
-            letter_content: updatedGift.letter_content,
-            letter_font: updatedGift.letter_font,
-            letter_settings: updatedGift.letter_settings,
-            special_message: updatedGift.special_message,
-            final_message: updatedGift.final_message,
-            password_hash: updatedGift.password_hash,
-            password_salt: updatedGift.password_salt,
-            password_type: updatedGift.password_type || 'pin',
-            published: Boolean(updatedGift.published),
-            updated_at: updatedGift.updated_at,
-          };
+        const creatorId = (user && user.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(user.id))
+          ? user.id
+          : null;
 
-          const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(updatedGift.id);
+        const payload = {
+          creator_id: creatorId,
+          slug: updatedGift.slug,
+          occasion: updatedGift.occasion,
+          recipient_name: updatedGift.recipient_name,
+          theme_id: updatedGift.theme_id,
+          letter_content: updatedGift.letter_content,
+          letter_font: updatedGift.letter_font,
+          letter_settings: updatedGift.letter_settings,
+          special_message: updatedGift.special_message,
+          final_message: updatedGift.final_message,
+          photos: updatedGift.photos || [],
+          settings: updatedGift.settings || {},
+          password_hash: updatedGift.password_hash,
+          password_salt: updatedGift.password_salt,
+          password_type: updatedGift.password_type || 'pin',
+          published: Boolean(updatedGift.published),
+          updated_at: updatedGift.updated_at,
+        };
 
-          if (isUuid) {
-            await supabase.from('gifts').update(payload).eq('id', updatedGift.id);
-          } else {
-            const { data } = await supabase.from('gifts').insert(payload).select().maybeSingle();
-            if (data?.id) {
-              updatedGift.id = data.id;
-              localGifts[0].id = data.id;
-              saveMockGifts(localGifts);
-            }
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(updatedGift.id);
+
+        if (isUuid) {
+          await supabase.from('gifts').update(payload).eq('id', updatedGift.id);
+        } else {
+          const { data } = await supabase.from('gifts').insert(payload).select().maybeSingle();
+          if (data?.id) {
+            updatedGift.id = data.id;
+            localGifts[0].id = data.id;
+            saveMockGifts(localGifts);
           }
         }
       } catch (err) {
-        console.warn('Supabase sync note:', err);
+        console.warn('Direct PostgREST sync note:', err);
       }
     }
 
