@@ -64,7 +64,7 @@ export const SAMPLE_GIFTS = [
     // Salt and SHA-256 hash for PIN "1234"
     password_salt: 'e9a4f6120b84c31a',
     // hash(`${salt}:1234`)
-    password_hash: '969796a56e6d5ca29509df658c3f4e85718dfbce545a9ca495d4218ebf928e3b',
+    password_hash: '74f7d4cd97621ddd07e76f4f7d380ab87dd5f4a6c5287b82bd0d253d20bbfbfb',
     published: true,
     created_at: new Date(Date.now() - 86400000 * 2).toISOString(),
     updated_at: new Date().toISOString(),
@@ -120,7 +120,7 @@ export const SAMPLE_GIFTS = [
     },
     password_type: 'pin',
     password_salt: 'e9a4f6120b84c31a',
-    password_hash: '969796a56e6d5ca29509df658c3f4e85718dfbce545a9ca495d4218ebf928e3b',
+    password_hash: '74f7d4cd97621ddd07e76f4f7d380ab87dd5f4a6c5287b82bd0d253d20bbfbfb',
     published: true,
     created_at: new Date(Date.now() - 86400000 * 5).toISOString(),
     updated_at: new Date().toISOString(),
@@ -176,7 +176,7 @@ export const SAMPLE_GIFTS = [
     },
     password_type: 'pin',
     password_salt: 'e9a4f6120b84c31a',
-    password_hash: '969796a56e6d5ca29509df658c3f4e85718dfbce545a9ca495d4218ebf928e3b',
+    password_hash: '74f7d4cd97621ddd07e76f4f7d380ab87dd5f4a6c5287b82bd0d253d20bbfbfb',
     published: true,
     created_at: new Date(Date.now() - 86400000 * 3).toISOString(),
     updated_at: new Date().toISOString(),

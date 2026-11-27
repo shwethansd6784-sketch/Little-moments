@@ -5,12 +5,13 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
-import { SAMPLE_GIFTS } from '../data/sampleGifts';
-import { generateSalt, hashPassword, verifyPassword, checkRateLimit, recordFailedAttempt, resetRateLimit } from './cryptoUtils';
+import { SAMPLE_GIFTS } from '../data/sampleGifts.js';
+import { generateSalt, hashPassword, verifyPassword, checkRateLimit, recordFailedAttempt, resetRateLimit } from './cryptoUtils.js';
 
-// Read environment variables
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+// Read environment variables (supports Vite browser environment and Node test runners)
+const env = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env : (typeof process !== 'undefined' && process.env ? process.env : {});
+const supabaseUrl = env.VITE_SUPABASE_URL || '';
+const supabaseAnonKey = env.VITE_SUPABASE_ANON_KEY || '';
 
 export const isSupabaseConfigured = Boolean(
   supabaseUrl && 
